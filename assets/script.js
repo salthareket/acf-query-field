@@ -1,12 +1,17 @@
 (function($) {
     if (typeof acf !== 'undefined') {
         acf.add_action('ready_field/type=query_field', function($field) {
-            console.log($field)
             initialize_query_field($field);
         });
 
         acf.add_action('append_field/type=query_field', function($field) {
-            console.log($field)
+            // Flexible sıra değişiminde ACF field'ı DOM'dan çıkarıp tekrar ekliyor.
+            // Eğer field'da zaten değerler varsa (type select'i dolu) init class'ını ekle
+            // böylece reset_fields çalışmaz ve mevcut değerler korunur.
+            var existingType = $field.find('[data-name="type"] select').val();
+            if (existingType) {
+                $field.addClass("init");
+            }
             initialize_query_field($field);
         });
 
@@ -694,12 +699,49 @@
 
         function initialize_meta($field){
             var $metaRepeater = $field.find('.acf-repeater');
+            var $metaJson     = $field.find('.acf-query-meta-json');
+
+            // Mevcut meta row'ların select2'lerini init et
             $metaRepeater.find('.meta-name').each(function() {
                 initialize_meta_name($(this));
             });
+
+            // Hidden JSON input'ı repeater'daki değerlerle sync et
+            function syncMetaJson() {
+                var rows = [];
+                $metaRepeater.find('.acf-repeater-row').each(function() {
+                    var key     = $(this).find('.meta-name').val() || '';
+                    var compare = $(this).find('.compare, .operator').val() || '=';
+                    var value   = $(this).find('.meta_value').val() || '';
+                    if (key) {
+                        rows.push({ key: key, compare: compare, value: value });
+                    }
+                });
+                $metaJson.val(JSON.stringify(rows));
+            }
+
+            // Her değişiklikte sync et
+            $metaRepeater.on('change', 'select, input', function() {
+                syncMetaJson();
+            });
+            // select2 change event'i farklı — delegated olarak yakala
+            $metaRepeater.on('select2:select select2:unselect', '.meta-name', function() {
+                syncMetaJson();
+            });
+
             $field.find('.acf-repeater-add-row').on('click', function() {
                 var index = $metaRepeater.find('.acf-repeater-row').length;
-                var name = $field.find('.acf-field-repeater').attr("data-parent")+'[meta]['+index+']';
+
+                // Name'i mevcut field input'larından türet
+                var baseName = '';
+                var $existingInput = $field.find('[name*="[meta]"]').not('.acf-query-meta-json').first();
+                if ($existingInput.length) {
+                    var existingName = $existingInput.attr('name');
+                    baseName = existingName.replace(/\[meta\]\[.*$/, '') + '[meta][' + index + ']';
+                } else {
+                    baseName = $field.find('.acf-field-repeater').attr("data-parent") + '[meta][' + index + ']';
+                }
+                var name = baseName;
                 var newRow = `
                     <div class="acf-repeater-row">
                         <div class="acf-fields --left">
@@ -730,16 +772,27 @@
 
                 var $newMetaName = $metaRepeater.find('.acf-repeater-row').last().find("select.meta-name");
                 initialize_meta_name($newMetaName);
+                syncMetaJson();
             });
             $field.on('click', '.remove-row', function() {
                 $(this).closest('.acf-repeater-row').remove();
+                syncMetaJson();
             });
+
+            // İlk yüklemede de sync et
+            syncMetaJson();
         }
 
         function initialize_meta_name($element) {
+            // Mevcut kaydedilmiş değeri koru — select2 init sırasında silinmesin
+            var existingVal = $element.attr("data-val") || $element.val();
+            if (existingVal && $element.find('option[value="' + existingVal + '"]').length === 0) {
+                $element.append('<option value="' + existingVal + '" selected>' + existingVal + '</option>');
+            }
+
             $element.select2({
                 ajax: {
-                    url: ajaxurl, // WordPress'in AJAX URL'si
+                    url: ajaxurl,
                     dataType: 'json',
                     delay: 250,
                     data: function(params) {
@@ -772,7 +825,8 @@
                 minimumInputLength: 1,
                 placeholder: 'Select Meta Name',
                 allowClear: true
-            }).trigger("change");
+            });
+            // trigger("change") kaldırıldı — mevcut seçili değeri sıfırlıyordu
         }
 
     }

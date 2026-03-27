@@ -594,12 +594,23 @@ class ACF_Field_Query_Field extends \acf_field {
                             ?>
                             </div>
                             <div class="acfe-repeater-stylised-button">
-                                <div class="acf-actions">
+                                <div class="acf-actions text-center">
                                     <a class="acf-button acf-repeater-add-row button" href="#" data-event="add-row">Add Meta</a>
                                     <div class="clear"></div>
                                 </div>
                             </div>
                         </div>
+
+                        <?php
+                        // Meta değerlerini JSON olarak hidden input'ta tut
+                        // Flexible/repeater içinde nested name attribute'ları bozulabiliyor
+                        // Bu hidden input her zaman doğru çalışır
+                        $meta_json = !empty($field['value']['meta']) ? json_encode($field['value']['meta']) : '[]';
+                        ?>
+                        <input type="hidden" 
+                               name="<?php echo esc_attr($field['name']); ?>[meta_json]" 
+                               class="acf-query-meta-json" 
+                               value="<?php echo esc_attr($meta_json); ?>" />
 
                     </div>
                 </div>
@@ -1027,16 +1038,19 @@ class ACF_Field_Query_Field extends \acf_field {
     }
 
     public function generate_wp_query($value){
+        global $wpdb;
         $query = [];
         $meta_query = [];
         $tax_query = [];
         $vars = [];
-        error_log("generate_wp_query()");
-        error_log(print_r($value, true));
-        /*if ( function_exists('pll_current_language') ) {
-            $lang = isset($_REQUEST['lang']) ? $_REQUEST['lang'] : pll_current_language();
-            $query['lang'] = $lang;
-        }*/
+
+        // Polylang aktifse mevcut dili query'ye ekle — 3x sonuç döndürmeyi engelle
+        if ( function_exists('pll_current_language') ) {
+            $lang = isset($_REQUEST['lang']) ? sanitize_text_field($_REQUEST['lang']) : pll_current_language();
+            if ( $lang ) {
+                $query['lang'] = $lang;
+            }
+        }
         switch($value["type"]){
             case "post" :
                 if($value["post_type"] != "0"){
@@ -1307,8 +1321,6 @@ class ACF_Field_Query_Field extends \acf_field {
         $query["orderby"] = $value["orderby"];
         $query["order"] = $value["order"];
 
-        error_log(print_r($query, true));
-
         return $query;
     }
 
@@ -1332,11 +1344,6 @@ class ACF_Field_Query_Field extends \acf_field {
 
         // Cache'de sonuç yoksa VEYA admin alanında isek VEYA cache kapalı ise sorguyu çalıştır.
         if ($posts === false) {
-
-            error_log("/////////////////////not cached---");
-            error_log(print_r($query, true));
-
-            
             // 2. Önbellekte yok, sorguyu çalıştır.
             $paginate = new Paginate($query, []); // Mevcut kodunuzdaki sınıfı kullanın
             $result = $paginate->get_results($type);
@@ -1483,12 +1490,6 @@ class ACF_Field_Query_Field extends \acf_field {
                 $result = $paginate->get_results($value["type"]);
             }
 
-            error_log("---------------------------------------");
-            error_log("---------------------------------------");
-            error_log(print_r($query, true));
-            error_log("---------------------------------------");
-            error_log("---------------------------------------");
-
             $context["posts"] = $result["posts"];
 
             $context["acf_query_field"] = $this;
@@ -1507,15 +1508,6 @@ class ACF_Field_Query_Field extends \acf_field {
     }
 
     function format_value( $value, $post_id, $field ) {
-        //error_log("format_value");
-        //error_log(json_encode($value));
-        //error_log("query format_value");
-
-        //error_log("format_value");
-        //error_log(print_r($value, true));
-
-        error_log("VERITABANINDAN GELEN HAM VALUE:");
-        error_log(print_r($value, true));
 
         $templates = [];
         $templates[] = "tease.twig";
@@ -1605,45 +1597,44 @@ class ACF_Field_Query_Field extends \acf_field {
                 );
             break;
         }
-
-        error_log(print_r($value, true));
         
         return $value;
     }
 
     function update_value( $value, $post_id, $field ) {
-    
-        error_log("update value");
-        error_log(print_r($value, true));
         
-        // 1. acf_query_field_id kontrolü ve ataması (Mevcut kodunuzdan alındı)
-        if(!isset($value["acf_query_field_id"])){
+        // 1. acf_query_field_id kontrolü ve ataması
+        if(!isset($value["acf_query_field_id"]) || empty($value["acf_query_field_id"])){
             $acf_query_field_id = unique_code(16);
-            //error_log("valu acf_query_field_id içermiyo. yenisi olustu :".$acf_query_field_id);
         }else{
-            if(empty($value["acf_query_field_id"])){
-                $acf_query_field_id = unique_code(16);
-                //error_log("valu acf_query_field_id bos deerli. deger olustu :".$acf_query_field_id); 
-            }else{
-                $acf_query_field_id = $value["acf_query_field_id"];
-                //error_log("deger zaten var :".$acf_query_field_id); 
-            }
+            $acf_query_field_id = $value["acf_query_field_id"];
         }
         
         $this->acf_query_field_id = $acf_query_field_id;
         $value["acf_query_field_id"] = $acf_query_field_id;
+
+        // 1b. Meta query — hidden JSON input'tan oku (flexible/repeater içinde güvenilir)
+        if (!empty($value['meta_json'])) {
+            $decoded = json_decode(stripslashes($value['meta_json']), true);
+            if (is_array($decoded)) {
+                $value['meta'] = array_values(array_filter($decoded, function($row) {
+                    return !empty($row['key']);
+                }));
+            }
+            unset($value['meta_json']); // DB'ye kaydetme, sadece meta'yı kullan
+        } elseif (isset($value['meta']) && is_array($value['meta'])) {
+            // Fallback: eski yöntem — repeater'dan gelen değerleri filtrele
+            $value['meta'] = array_values(array_filter($value['meta'], function($row) {
+                return !empty($row['key']);
+            }));
+        }
         
-        // 2. ÖNBELLEK TEMİZLİĞİ İÇİN HEDEF POST TİPİNİ KAYDETME
-        
-        // Sorgunun hangi post_type'ı hedeflediğini kontrol et
+        // 2. Önbellek temizliği için hedef post tipini kaydet
         $target_post_type = isset($value['post_type']) ? $value['post_type'] : null;
 
         if ( !empty( $target_post_type ) ) {
-            // Alan adını (field['name']) kullanarak meta key'i benzersiz yapıyoruz.
-            // Bu veriyi, herhangi bir post güncellendiğinde hangi önbellekleri sileceğimizi bulmak için kullanacağız.
             update_post_meta( $post_id, '_acf_query_field_target_type_' . $field['name'], $target_post_type );
         } else {
-            // Eğer post_type alanı boşsa, mevcut kaydı sil
             delete_post_meta( $post_id, '_acf_query_field_target_type_' . $field['name'] );
         }
 
@@ -1719,7 +1710,6 @@ class ACF_Field_Query_Field extends \acf_field {
                 }
                 
                 delete_transient( $transient_name );
-                error_log("ACF Query Field Transient Silindi: " . $transient_name);
             }
         }
 

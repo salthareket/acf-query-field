@@ -2,11 +2,31 @@
 /**
  * Plugin Name: ACF Query Field
  * Description: Custom ACF field for creating dynamic queries.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Tolga Koçak
+ * Requires Plugins: advanced-custom-fields
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
+
+// Bağımlılık kontrolü
+add_action( 'admin_init', function() {
+    $missing = [];
+    if ( ! class_exists( 'ACF' ) && ! class_exists( 'acf' ) ) {
+        $missing[] = 'Advanced Custom Fields (ACF)';
+    }
+    if ( ! class_exists( 'Timber' ) ) {
+        $missing[] = 'Timber';
+    }
+    if ( ! empty( $missing ) ) {
+        add_action( 'admin_notices', function() use ( $missing ) {
+            printf(
+                '<div class="notice notice-error"><p><strong>ACF Query Field:</strong> %s eklentileri yüklü ve aktif olmalıdır.</p></div>',
+                implode( ', ', $missing )
+            );
+        });
+    }
+});
 
 class ACF_Query_Field {
 
@@ -38,23 +58,25 @@ class ACF_Query_Field {
 
     public function acf_query_field_ajax() {
         $response = array(
-            "error" => false,
+            "error"   => false,
             "message" => "",
-            "html" => "",
-            "data" => ""
+            "html"    => "",
+            "data"    => ""
         );
-        $count = 0;
+        $count   = 0;
         $options = "";
-        $ids = array();
-        $selected = isset($_POST["selected"])?$_POST["selected"]:"";
+        $ids     = array();
+        $type    = isset($_POST["type"])     ? sanitize_text_field($_POST["type"])     : "";
+        $value   = isset($_POST["value"])    ? sanitize_text_field($_POST["value"])    : "";
+        $selected = isset($_POST["selected"]) ? $_POST["selected"] : ""; // array veya string olabilir
 
-        switch ($_POST["type"]) {
+        switch ($type) {
 
             case 'post_type':
-                if( empty($_POST["value"])){
+                if( empty($value)){
                     $taxonomies = get_taxonomies(array(), 'objects' );
                 }else{
-                    $taxonomies = get_object_taxonomies( array( 'post_type' => $_POST["value"] ), 'objects' );
+                    $taxonomies = get_object_taxonomies( array( 'post_type' => $value ), 'objects' );
                 }
                 if($taxonomies){
                     $taxonomies = array_filter($taxonomies, function($taxonomy) {
@@ -64,19 +86,19 @@ class ACF_Query_Field {
                         $options .= "<option value='0' ".(empty($selected)?"":"selected").">All Taxonomies</option>"; 
                         foreach( $taxonomies as $taxonomy ){
                             $ids[] = $taxonomy;
-                            $options .= "<option value='".$taxonomy->name."' ".($selected == $taxonomy->name?"selected":"").">".$taxonomy->label."</option>";        
+                            $options .= "<option value='".esc_attr($taxonomy->name)."' ".($selected == $taxonomy->name?"selected":"").">".esc_html($taxonomy->label)."</option>";        
                         }
                     }              
                 }  
             break;
 
             case 'taxonomy':
-                $selected = !is_array($selected)?json_decode($selected):$selected;
-                $selected = empty($selected)?array():$selected;
-                $terms = get_terms( array( 'taxonomy' => $_POST["value"], 'hide_empty' => false ) );
+                $selected = !is_array($selected) ? json_decode(stripslashes($selected), true) : $selected;
+                $selected = empty($selected) ? array() : array_map('intval', (array)$selected);
+                $terms = get_terms( array( 'taxonomy' => $value, 'hide_empty' => false ) );
                 if($terms){
                     foreach( $terms as $term ){
-                        $options .= "<option value='".$term->term_id."' ".(in_array($term->term_id, $selected)?"selected":"").">".$term->name."</option>";
+                        $options .= "<option value='".esc_attr($term->term_id)."' ".(in_array($term->term_id, $selected)?"selected":"").">".esc_html($term->name)."</option>";
                         $ids[] = $term->term_id;          
                     }                
                 }
@@ -86,9 +108,9 @@ class ACF_Query_Field {
         $response["html"] = $options;
         $values = array();
         $values["selected"] = $selected;
-        $values["ids"] = $ids;
-        $values["count"] = $count;
-        $response["data"] = $values;
+        $values["ids"]      = $ids;
+        $values["count"]    = $count;
+        $response["data"]   = $values;
         echo json_encode($response);
         die;
     }
@@ -163,24 +185,22 @@ class ACF_Query_Field {
         wp_send_json($data);
     }
     public function acf_query_field_post_ajax() {
-        // POST ve GET verilerini al
-        $post_type = isset($_GET['post_type']) ? sanitize_text_field($_GET['post_type']) : ''; // Post türü
-        $taxonomy = isset($_GET['taxonomy']) ? sanitize_text_field($_GET['taxonomy']) : ''; // Taksonomi
-        $terms = isset($_GET['terms']) ? array_map('intval', $_GET['terms']) : []; // Term ID'ler dizisi
-        $selected = isset($_GET['selected']) ? intval($_GET['selected']) : 0; // Seçilen ID
-        $page = isset($_GET['page']) ? intval($_GET['page']) : 1; // Sayfalama
-        $offset = ($page - 1) * 10; // Sayfalama offset
+        $post_type = isset($_GET['post_type']) ? sanitize_text_field($_GET['post_type']) : '';
+        $taxonomy  = isset($_GET['taxonomy'])  ? sanitize_text_field($_GET['taxonomy'])  : '';
+        $terms     = isset($_GET['terms'])     ? array_map('intval', (array)$_GET['terms']) : [];
+        $selected  = isset($_GET['selected'])  ? intval($_GET['selected']) : 0;
+        $page      = isset($_GET['page'])      ? intval($_GET['page'])     : 1;
+        $offset    = ($page - 1) * 10;
 
-        // Polylang dil filtresi
-        $lang = pll_current_language(); // Polylang'dan aktif dili alıyoruz
+        // Polylang dil filtresi — sadece yüklüyse uygula
+        $lang = (function_exists('pll_current_language')) ? pll_current_language() : '';
 
-        // WP_Query için args
         $args = [
-            'post_type'      => $post_type ?: 'any', // Belirtilmişse, aksi takdirde tüm post türleri
-            'post_status'    => 'publish', // Yalnızca yayımlanmış postları getir
-            'posts_per_page' => 10, // Sayfalama için sayfa başına post sayısı
-            'paged'          => $page, // Sayfa numarası
-            'offset'         => $offset, // Sayfa offseti
+            'post_type'      => $post_type ?: 'any',
+            'post_status'    => 'publish',
+            'posts_per_page' => 10,
+            'paged'          => $page,
+            'offset'         => $offset,
         ];
 
         // Eğer taxonomy varsa
