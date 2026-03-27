@@ -1,0 +1,5 @@
+{% for post in posts %}
+    <div class="{% if slider %}swiper-slide{% else %}col{% endif %}">
+    {% include templates with { is_preview : is_preview, load_order: loop.index0, odd: loop.index0 is odd, even: loop.index0 is even } %}
+    </div>
+{% endfor %}

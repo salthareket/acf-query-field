@@ -1,0 +1,115 @@
+{% set init = fields.preload?"false":"true" %}
+
+{% set page = function("get_query_var", "paged")|default(1) %}
+{% if fields.preload and page == 1 %}
+    {% set page = 2 %}
+{% else %}
+    {% if data and data.page_total == data.page %}
+       {% set page = data.page %}
+    {% else %}
+        {% if data.page %}
+            {% set page = data.page %}
+        {% else %}
+            {% set page = page %}
+        {% endif %}
+        {% if fields.preload %}
+            {% set page = page + 1 %}
+        {% endif %}
+        {% set page = page==0?1:page %}
+    {% endif %}
+{% endif %}
+
+<div class="card card-reset ajax-paginate min-w-100 {% if fields.slider %}swiper-slider swiper h-100 {{block_meta.row.class}} [block_meta.row.class]{% endif %}" 
+    data-query="{{fields.wp_query_id}}" 
+    data-ajax-method="acf_layout_posts" 
+    data-ajax-init="{{init}}" 
+    data-paged="{{fields.paged}}"
+    data-paged_url="{{fields.paged_url}}"
+    data-type="{{fields.type}}"
+    data-slider="{{fields.slider|boolval}}"
+    data-load_type="{{fields.load_type}}"
+
+    data-heading="{{fields.heading}}"
+
+    data-templates="{{fields.templates|json_encode|esc_attr}}"
+    data-orderby="{{fields.orderby}}"
+    data-order="{{fields.order}}"
+
+    data-posts_per_page="{{fields.posts_per_page}}"
+
+    data-url="{{current_url}}"
+    data-initial="{{fields.paged_url?page:1}}"
+
+    data-max_posts="{{fields.max_posts}}" 
+    data-page="{{fields.paged_url?page:1}}" 
+    {% if fields.slider %}{{block_meta.row.attrs}} [block_meta.row.attrs] {% endif %}
+    >
+        {#<div class="card-header">
+            <div class="item-total"></div>
+        </div>#}
+
+        <div class="card-body posts list-cards {% if fields.slider %}swiper-wrapper{% else %}row {{block_meta.row.class}} [block_meta.row.class]{% endif %}" {% if not fields.slider %}{{block_meta.row.attrs}} [block_meta.row.attrs]{% endif %}>
+            {% set preloaded_count = 0 %}
+            {% if data.posts %}
+                {% set preloaded_count = data.total %}
+                {{ data.posts }}
+            {% endif %}
+        </div>
+        {% if fields.slider %}
+            <div class="swiper-pagination mt-4"></div>
+        {% else %}
+
+            {% set button_visibility = false %}
+            {% if fields.paged %}
+                {% if fields.load_type != "default"  %}
+                    {% if fields.posts_per_page > 0 and (paged < data.page_count_total) %}
+                        {% set button_visibility = true %}
+                    {% endif %}
+                    {% if not fields.preload %}
+                        {% set button_visibility = true %}
+                    {% endif %}
+                {% else %}
+                    {% set button_visibility = true %}
+                {% endif %}
+            {% endif %}
+
+            {% if button_visibility %}
+                <div class="card-footer justify-content-{{fields.button_position}} mt-4 d-flex">
+                    {% if fields.load_type == "default" and fields.paged_url %}
+                        <nav class="pagination-container">
+                            <ul class="pagination">
+                            {% if posts.pagination.prev %}
+                                  <li class="page-item prev {{posts.pagination.prev.link|length ? '' : 'invisible'}}">
+                                      <a href="{{posts.pagination.prev.link}}" class="{{posts.pagination.prev.class}} page-link btn-loading-page" aria-label="Previous" data-page="{{function("get_page_number", posts.pagination.prev.link)}}">
+                                        <span aria-hidden="true"></span>
+                                      </a>
+                                  </li>
+                              {% endif %}
+                              {% for page in posts.pagination.pages %}
+                                 <li class="page-item {{page.current ? 'active' : ''}}">
+                                   {% if page.link %}
+                                      <a href="{{page.link}}" class="page-link {{page.class}} btn-loading-page" data-page="{{page.title}}">{{page.title}}</a>
+                                   {% else %}
+                                      <span class="page-link {{page.class}}">{{page.title}}</span>
+                                   {% endif %}
+                                 </li>
+                              {% endfor %}
+                              {% if posts.pagination.next %}
+                                <li class="page-item next {{posts.pagination.next.link|length ? '' : 'invisible'}}">
+                                    <a href="{{posts.pagination.next.link}}" class="{{posts.pagination.next.class}} page-link btn-loading-page" aria-label="Next" data-page="{{function("get_page_number", posts.pagination.next.link)}}">
+                                      <span aria-hidden="true"></span>
+                                    </a>
+                                </li>
+                              {% endif %}
+                            </ul>
+                        </nav>                    
+                    {% else %}
+                        <a href="#" class="btn-next-page btn {% if fields.load_type == "button" %}btn-{% if fields.button_outline %}outline-{% endif %}{{fields.button_class}}{% endif %} btn-{{fields.button_size}} {% if fields.button_full_width %}w-100{% endif %} {% if (fields.posts_per_page < preloaded_count and fields.preload) %}d-none{% endif %} {% if not fields.preload and not is_preview %}loading processing{% endif %}" data-init="{% if init %}0{% else %}1{% endif %}">
+                            <span class="text">Load <span class="item-left"></span> More</span>
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+            
+        {% endif %}
+</div>
