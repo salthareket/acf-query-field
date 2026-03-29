@@ -4,7 +4,7 @@
  * Description: Custom ACF field for creating dynamic queries.
  * Version: 1.2.1
  * Author: Tolga Koçak
- * Requires Plugins: advanced-custom-fields
+ * Requires Plugins: advanced-custom-fields-pro
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
