@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ACF Query Field
  * Description: Custom ACF field for creating dynamic queries.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Author: Tolga Koçak
  * Requires Plugins: advanced-custom-fields-pro
  */
