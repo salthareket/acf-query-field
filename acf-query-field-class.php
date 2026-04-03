@@ -118,6 +118,12 @@ class ACF_Field_Query_Field extends \acf_field {
         }
         $vars["heading"] = $value["heading"];
         $vars["max_posts"] = $value["max_posts"];
+        if(isset($value["paged"])){
+            $vars["paged"] = $value["paged"];
+        }
+        if(isset($value["load_type"])){
+            $vars["load_type"] = $value["load_type"];
+        }
         return $vars;
     }
 
@@ -1473,6 +1479,12 @@ class ACF_Field_Query_Field extends \acf_field {
  
             $vars = $this->get_vars($value, $query);
 
+            // Admin panelinde preload'u zorla true yap — block preview'da postlar görünsün
+            $is_admin_preview = is_admin();
+            if($is_admin_preview && empty($value["preload"])){
+                $value["preload"] = true;
+            }
+
             if(get_query_var("paged") > 0){
                 //$query["paged"] = get_query_var("paged");
             }
@@ -1491,6 +1503,19 @@ class ACF_Field_Query_Field extends \acf_field {
             }
 
             $context["posts"] = $result["posts"];
+
+            if(!isset($context["data"]) || empty($context["data"])){
+                $data = $result["data"] ?? [];
+                // preload false ise ilk sayfa AJAX ile yüklenecek, page=1 olmalı
+                if(empty($value["preload"])){
+                    $data["page"] = 1;
+                }
+                $context["data"] = $data;
+            }
+
+            // Query'yi encrypt edip template'e geçir (AJAX pagination için)
+            $enc = new \Encrypt();
+            $value["encrypted_query"] = $enc->encrypt($query);
 
             $context["acf_query_field"] = $this;
             $context["block_meta"] = $block_meta;

@@ -1,7 +1,9 @@
 {% set init = fields.preload?"false":"true" %}
 
 {% set page = function("get_query_var", "paged")|default(1) %}
-{% if fields.preload and page == 1 %}
+{% if not fields.preload %}
+    {% set page = 1 %}
+{% elseif fields.preload and page == 1 %}
     {% set page = 2 %}
 {% else %}
     {% if data and data.page_total == data.page %}
@@ -20,7 +22,7 @@
 {% endif %}
 
 <div class="card card-reset ajax-paginate min-w-100 {% if fields.slider %}swiper-slider swiper h-100 {{block_meta.row.class}} [block_meta.row.class]{% endif %}" 
-    data-query="{{fields.wp_query_id}}" 
+    data-query="{{fields.encrypted_query}}" 
     data-ajax-method="acf_layout_posts" 
     data-ajax-init="{{init}}" 
     data-paged="{{fields.paged}}"
@@ -55,13 +57,17 @@
                 {{ data.posts }}
             {% endif %}
         </div>
+        fields.slider: {{ fields.slider }}
         {% if fields.slider %}
             <div class="swiper-pagination mt-4"></div>
         {% else %}
 
+            fields.paged: {{ fields.paged  }}
+
             {% set button_visibility = false %}
             {% if fields.paged %}
                 {% if fields.load_type != "default"  %}
+                    fields.posts_per_page: {{ fields.posts_per_page }}, paged: {{ paged }}, data.page_count_total: {{ data.page_count_total }}, fields.preload: {{ fields.preload }}
                     {% if fields.posts_per_page > 0 and (paged < data.page_count_total) %}
                         {% set button_visibility = true %}
                     {% endif %}
