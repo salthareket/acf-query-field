@@ -1,5 +1,39 @@
 <?php
 
+/**
+ * ACF_Field_Query_Field — Dynamic query ACF field type
+ *
+ * @version 1.2.4
+ *
+ * @changelog
+ *   1.2.4 - 2026-06-02
+ *     - Fix: Undefined array key "paged" warning — $value["paged"] erişimleri
+ *       !empty() ile korundu (line 1346 ve 1531)
+ *   1.2.3 - 2026-05-18
+ *     - Add: load_value() — DB'de kayıtlı değer yoksa default'lar set edilir
+ *       - type = 'post', post_type = 'post', posts_per_page = 10
+ *       - default_posts_per_page = 1, preload = 1
+ *     - Fix: controls_options_settings undefined warning — isset() kontrolü eklendi
+ *   1.2.2 - Önceki versiyon
+ *
+ * How to use:
+ *   // Field eklendiğinde otomatik default değerler gelir (load_value ile)
+ *   // Kullanıcı kaydettiğinde DB'den gerçek değer gelir, default'lar override edilmez
+ *   // paged aktifse WP'nin pagination sistemi devreye girer (Paginate class)
+ *   // load_type = 'default' ise sayfa yüklendiğinde sorgu çalışır
+ *   // load_type = 'ajax' ise ilk yüklemede preload verisi, sonrası AJAX
+ *
+ * Examples:
+ *   // load_value() sadece DB'de değer yokken çalışır:
+ *   $field = get_field_object('my_query_field');
+ *   // $field['value']['type'] === 'post'
+ *   // $field['value']['posts_per_page'] === 10
+ *
+ *   // Sayfalama aktifken kullanım:
+ *   // ACF field'da paged=1, load_type='default' seçilirse
+ *   // WP'nin get_query_var('paged') değeri otomatik kullanılır
+ */
+
 if( ! defined( 'ABSPATH' ))  exit;
 
 class ACF_Field_Query_Field extends \acf_field {
@@ -336,30 +370,28 @@ class ACF_Field_Query_Field extends \acf_field {
                         <label for="<?php echo esc_attr($field['name']) ?>[taxonomy]"><?php _e('Taxonomy', 'acf-query-field'); ?></label>
                     </div>
                     <div class="acf-input">
-                        <?php $selected = isset($field['value']['taxonomy'])?$field['value']['taxonomy']:""; ?>
-                        <select name="<?php echo esc_attr($field['name']) ?>[taxonomy]" id="<?php echo esc_attr($field['name']) ?>_taxonomy" data-val="<?php echo esc_attr($selected) ?>">
-                            <?php
-                            $taxonomies = get_taxonomies(array('public' => true), 'objects');
-                            if($taxonomies){
-                                ob_start();
-                                ?>
-                                <option value="0"><?php _e('All Taxonomies', 'acf-query-field'); ?></option>
-                                <?php
-                                foreach ($taxonomies as $taxonomy) {
-                                    $default_label = $this->get_default_lang_label($taxonomy->name, 'taxonomy');
-                                    ?>
-                                    <option value="<?php echo esc_attr($taxonomy->name); ?>" <?php selected($selected, $taxonomy->name); ?>><?php echo esc_html($taxonomy->label) . $default_label; ?></option>
-                                    <?php
-                                }
-                                $taxonomy_options_html = ob_get_clean();
-                            } else {
-                                $taxonomy_options_html = '';
-                            }
+                        <?php 
+                        $selected = isset($field['value']['taxonomy'])?$field['value']['taxonomy']:"";
+                        // Taxonomy options HTML'ini önce oluştur — data-taxonomies attribute'u için gerekli
+                        $taxonomy_options_html = '';
+                        $taxonomies = get_taxonomies(array('public' => true), 'objects');
+                        if($taxonomies){
+                            ob_start();
                             ?>
+                            <option value="0"><?php _e('All Taxonomies', 'acf-query-field'); ?></option>
+                            <?php
+                            foreach ($taxonomies as $taxonomy) {
+                                $default_label = $this->get_default_lang_label($taxonomy->name, 'taxonomy');
+                                ?>
+                                <option value="<?php echo esc_attr($taxonomy->name); ?>" <?php selected($selected, $taxonomy->name); ?>><?php echo esc_html($taxonomy->label) . $default_label; ?></option>
+                                <?php
+                            }
+                            $taxonomy_options_html = ob_get_clean();
+                        }
+                        ?>
+                        <select name="<?php echo esc_attr($field['name']) ?>[taxonomy]" id="<?php echo esc_attr($field['name']) ?>_taxonomy" data-val="<?php echo esc_attr($selected) ?>" data-taxonomies="<?php echo esc_attr(json_encode($taxonomy_options_html)); ?>">
+                            <?php echo $taxonomy_options_html; ?>
                         </select>
-                        <script>
-                            var acf_query_field_taxonomies = <?php echo json_encode($taxonomy_options_html); ?>;
-                        </script>
                     </div>
                 </div>
 
@@ -1025,7 +1057,7 @@ class ACF_Field_Query_Field extends \acf_field {
             }
             ?>
 
-            <input type="hidden" name="<?php echo esc_attr($field['name']) ?>[acf_query_field_id]" value="<?php echo esc_attr($field['value']['acf_query_field_id'] ?? ''); ?>"/>
+            <input type="hidden" name="<?php echo esc_attr($field['name']) ?>[acf_query_field_id]" value="<?php echo esc_attr($field['value']['acf_query_field_id'] ?? ''); ?>" data-pagination-defaults="<?php echo esc_attr(json_encode($pagination_defaults)); ?>"/>
 
             <script>
                 var acf_query_field_pagination_defaults = <?php echo json_encode($pagination_defaults); ?>;
@@ -1035,8 +1067,21 @@ class ACF_Field_Query_Field extends \acf_field {
     }
 
     function load_field($field){
-        //error_log("load_field");
         return $field;
+    }
+
+    function load_value($value, $post_id, $field){
+        // Sadece value gerçekten boşsa default'ları set et
+        if ( empty( $value ) || ! is_array( $value ) ) {
+            return [
+                'type'                  => 'post',
+                'post_type'             => 'post',
+                'posts_per_page'        => 10,
+                'default_posts_per_page'=> 1,
+                'preload'               => 1,
+            ];
+        }
+        return $value;
     }
 
     public function get_method(){
@@ -1265,7 +1310,7 @@ class ACF_Field_Query_Field extends \acf_field {
                     }                    
                 }
 
-                if($value["orderby"] == "rating"){
+                if(($value["orderby"] ?? '') == "rating"){
                     $query["meta_key"] = "rating";
                     $value["orderby"] = "value_num";
                 }
@@ -1308,7 +1353,7 @@ class ACF_Field_Query_Field extends \acf_field {
         //$post_count_all   = $value["type"]=="post"?"-1":"0";
         $post_count_all   = $value["type"]=="post"?"9999":"0";//-1 yapınca tek post donebiliyo bazen
 
-        if($value["paged"]){
+        if(!empty($value["paged"])){
             if(!empty($value["max_posts"])){
                 $query[$post_count_query] = $value["posts_per_page"] > $value["max_posts"] ? $value["max_posts"] : $value["posts_per_page"];
             }else{
@@ -1324,8 +1369,8 @@ class ACF_Field_Query_Field extends \acf_field {
             }
         }
         
-        $query["orderby"] = $value["orderby"];
-        $query["order"] = $value["order"];
+        $query["orderby"] = $value["orderby"] ?? 'date';
+        $query["order"] = $value["order"] ?? 'DESC';
 
         return $query;
     }
@@ -1493,7 +1538,7 @@ class ACF_Field_Query_Field extends \acf_field {
                 $context["data"] = $this->get_render_preload($query, $vars, $value);
             }
             
-            if($value["paged"] && $value["load_type"] == "default"){
+            if(!empty($value["paged"]) && $value["load_type"] == "default"){
                 $query["paged"] = get_query_var("paged");
                 $paginate = new Paginate($query, $vars);
                 $result = $paginate->get_results($value["type"]);
@@ -1763,7 +1808,7 @@ class ACF_Field_Query_Field extends \acf_field {
     }
 
     public function input_admin_enqueue_scripts() {
-        wp_enqueue_script('acf-query-field', plugin_dir_url(__FILE__) . 'assets/script.js', array('acf-input'), '1.0.0', true);
+        wp_enqueue_script('acf-query-field', plugin_dir_url(__FILE__) . 'assets/script.js', array('acf-input', 'jquery'), '1.0.2', true);
         wp_enqueue_style('acf-query-field', plugin_dir_url(__FILE__) . 'assets/style.css', array('acf-input'), '1.0.0');
     }
 

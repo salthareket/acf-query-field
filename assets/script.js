@@ -1,13 +1,21 @@
 (function($) {
     if (typeof acf !== 'undefined') {
+
+        // ACF yeni versiyon: new_field event'i field instance'ı ile geliyor
+        acf.add_action('new_field', function(field) {
+            var $field = field && field.$el ? field.$el : $(field);
+            if (!$field || !$field.length) return;
+            if ($field.hasClass('acf-field-query-field') || $field.data('type') === 'query_field') {
+                initialize_query_field($field);
+            }
+        });
+
+        // Eski ACF API fallback
         acf.add_action('ready_field/type=query_field', function($field) {
             initialize_query_field($field);
         });
 
         acf.add_action('append_field/type=query_field', function($field) {
-            // Flexible sıra değişiminde ACF field'ı DOM'dan çıkarıp tekrar ekliyor.
-            // Eğer field'da zaten değerler varsa (type select'i dolu) init class'ını ekle
-            // böylece reset_fields çalışmaz ve mevcut değerler korunur.
             var existingType = $field.find('[data-name="type"] select').val();
             if (existingType) {
                 $field.addClass("init");
@@ -22,6 +30,18 @@
             var $return_type = $field.find('[name="return_type"]').val();
 
             var $type = $field.find('[data-name="type"]');
+
+            // data-* attribute'larından oku — inline <script> ACF V3 fetch-block'ta execute edilmiyor
+            var $taxonomySelect = $field.find('.acf-query-taxonomy-fields [data-name="taxonomy"] select');
+            var acf_query_field_taxonomies = $taxonomySelect.attr('data-taxonomies') || '';
+            try { acf_query_field_taxonomies = JSON.parse(acf_query_field_taxonomies); } catch(e) { acf_query_field_taxonomies = ''; }
+
+            var $fieldIdInput = $field.find('input[name$="[acf_query_field_id]"]');
+            var acf_query_field_pagination_defaults = {};
+            try {
+                var pdRaw = $fieldIdInput.attr('data-pagination-defaults') || '{}';
+                acf_query_field_pagination_defaults = JSON.parse(pdRaw) || {};
+            } catch(e) { acf_query_field_pagination_defaults = {}; }
 
             var $post_type_comment      = $field.find('[data-type="comment"]').find('[data-name="post_type"]');
             var $taxonomy_comment       = $field.find('[data-type="comment"]').find('[data-name="taxonomy"]');
@@ -229,7 +249,6 @@
             $default_posts_per_page.find("input[type='checkbox']").on("change", function(){
                 $post_type = $field.find("[data-name='post_type']").find("select").val();  
                 if($(this).is(':checked')) {
-                    console.log(acf_query_field_pagination_defaults[$post_type])
                     $load_type.find('select option[value="'+acf_query_field_pagination_defaults[$post_type]["type"]+'"]').prop('selected', true);
                     $load_type.find('select').attr("readonly", true).trigger("change");
                     $posts_per_page.find("input").val(acf_query_field_pagination_defaults[$post_type]["posts_per_page"]).attr("readonly", true);
@@ -353,7 +372,6 @@
             });
 
             function reset_fields($field){
-                console.log("reset_fields")
                 if($field.hasClass("init")){
                     return false;
                 }
@@ -361,7 +379,6 @@
                 var types = $field.find('.acf-fields').not("[data-type='type']").map(function() {
                     return $(this).data('type');
                 }).get();
-                console.log(types)
                 
                 types.forEach(function(type, index) {
                     var container = $field.find('.acf-query-'+type+'-fields');
@@ -381,7 +398,6 @@
                                $(this).val(firstValue);
                             }
                             if($(this).next(".select2").length > 0){
-                                console.log($(this))
                                 $(this).val(null).trigger('change');
                             }
                         }else{
@@ -474,7 +490,6 @@
             }
 
             function get_options($field, type, name, value, e){
-                console.log(type, name, value);
                 var container = $field.find('.acf-query-'+type+'-fields');
 
                 var $post_type_obj = container.find('[data-name="post_type"]');
@@ -484,6 +499,10 @@
                 var data = {
                     action: 'acf_query_field_ajax',
                 };
+
+                // Her case'de tanımlı olsun — taxonomy case'inde chained yok
+                var $obj_main    = null;
+                var $obj_chained = null;
                 
                 switch(name){
                     case "post_type" :
@@ -492,13 +511,13 @@
                             $terms_obj.addClass("d-none");
                             return;
                         }
-                        var $obj_main = $taxonomy_obj;
-                        var $obj_chained = $terms_obj; 
+                        $obj_main    = $taxonomy_obj;
+                        $obj_chained = $terms_obj; 
                         $obj_main.removeClass("d-none");
                         $obj_main.addClass("loading-process loading-xs");
                         $obj_chained.addClass("d-none");
                         data["value"]    = value;
-                        data["type"]     = "post_type"
+                        data["type"]     = "post_type";
                         data["selected"] = $obj_main.find("select").data("val");
                     break;
                     case "taxonomy" :
@@ -506,12 +525,13 @@
                             $terms_obj.addClass("d-none");
                             return;
                         }
-                        var $obj_main = $terms_obj;
+                        $obj_main    = $terms_obj;
+                        $obj_chained = null; // taxonomy'nin chained'ı yok
                         $obj_main.find("select").val(null).trigger('change');
                         $obj_main.removeClass("d-none");
                         $obj_main.addClass("loading-process loading-xs");
                         data["value"]    = value;
-                        data["type"]     = "taxonomy"
+                        data["type"]     = "taxonomy";
                         data["selected"] = $obj_main.find("select").data("val");
                     break;
                     default:
@@ -664,7 +684,6 @@
                                 }
                             });
                             response.template.forEach(function(item) {
-                                console.log("bu abi:"+item)
                                 if(item != 0 && item != "0"){
                                     let option = $('<option></option>').attr('value', item).text(item);
                                     if (item == selected) {
@@ -693,7 +712,7 @@
                 });
             }
 
-            $type.find("select").trigger("change");   
+            $type.find("select").trigger("change");
         }
 
 

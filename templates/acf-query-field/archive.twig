@@ -57,12 +57,10 @@
                 {{ data.posts }}
             {% endif %}
         </div>
-        fields.slider: {{ fields.slider }}
+
         {% if fields.slider %}
             <div class="swiper-pagination mt-4"></div>
         {% else %}
-
-            fields.paged: {{ fields.paged  }}
 
             {% set button_visibility = false %}
             {% if fields.paged %}
